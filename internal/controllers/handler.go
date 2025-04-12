@@ -81,19 +81,10 @@ func (controller *WeatherController) GetWeatherToday(rw http.ResponseWriter, r *
 		return
 	}
 
-	if request.Lang == "" {
-		slog.Error("language must not be empty")
-		rw.Header().Set("Content-Type", "application/json")
-		rw.WriteHeader(http.StatusBadRequest)
-		rw.Write([]byte(`{"error":"language must not be empty"}`))
-		return
-	}
-
 	result, err := controller.options.WeatherUseCase.GetWeatherToday(ctx,
 		dto.GetWeatherTodayParams{
-			Lat:  lat,
-			Lon:  lon,
-			Lang: request.Lang,
+			Lat: lat,
+			Lon: lon,
 		},
 	)
 	if err != nil {

@@ -10,5 +10,5 @@ type WeatherResult struct {
 	CurrentWeather struct {
 		Temperature float64 `json:"temperature"`
 		WeatherCode int     `json:"weathercode"`
-	}
+	} `json:"current_weather"`
 }

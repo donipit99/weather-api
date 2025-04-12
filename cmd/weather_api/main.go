@@ -12,6 +12,11 @@ import (
 )
 
 func main() {
+	handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	})
+	slog.SetDefault(slog.New(handler))
+
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		slog.Error("msg", "load config failed", "err", err)
@@ -20,7 +25,7 @@ func main() {
 
 	client := adapters.NewClient(
 		adapters.ClientOptions{
-			URL: "https://api.open-meteo.com",
+			URL: cfg.WeatherAPI.URL,
 		},
 	)
 
@@ -37,6 +42,8 @@ func main() {
 	)
 
 	http.HandleFunc("/api/v1/weather", weatherController.GetWeatherToday)
+
+	slog.Info("server start", "port", cfg.Server.Port)
 
 	if err := http.ListenAndServe(":"+cfg.Server.Port, nil); err != nil {
 		slog.Error("server failed", "err", err)

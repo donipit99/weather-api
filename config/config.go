@@ -21,8 +21,7 @@ type Postgres struct {
 }
 
 type WeatherAPI struct {
-	URL       string `env:"URL"`
-	AccessKey string `env:"ACCESS_KEY"`
+	URL string `env:"URL"`
 }
 
 type Server struct {
