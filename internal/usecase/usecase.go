@@ -29,9 +29,8 @@ func NewWeatherUseCase(options WeatherUseCaseOptions) *WeatherUseCase {
 
 func (usecase *WeatherUseCase) GetWeatherToday(ctx context.Context, params dto.GetWeatherTodayParams) (*dto.WeatherResult, error) {
 	result, err := usecase.options.WeatherClient.WeatherToday(ctx, models.WeatherTodayParams{
-		Lat:  params.Lat,
-		Lon:  params.Lon,
-		Lang: params.Lang,
+		Lat: params.Lat,
+		Lon: params.Lon,
 	})
 	if err != nil {
 		err = fmt.Errorf("usecase.options.WeatherClient.WeatherToday(...): %w", err)
