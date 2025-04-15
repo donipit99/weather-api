@@ -8,8 +8,35 @@ type WeatherTodayParams struct {
 type CurrentWeather struct {
 	Temperature float64 `json:"temperature"`
 	WeatherCode int     `json:"weathercode"`
+	WeatherDesc string  `json:"weather_description"`
 }
 
 type WeatherResult struct {
 	CurrentWeather CurrentWeather `json:"current_weather"`
+}
+
+var WeatherCodeMap = map[int]string{
+	0:  "Ясно",
+	1:  "Преимущественно ясно",
+	2:  "Переменная облачность",
+	3:  "Облачно",
+	45: "Туман",
+	48: "Инейный туман",
+	51: "Легкая морось",
+	53: "Умеренная морось",
+	55: "Сильная морось",
+	61: "Небольшой дождь",
+	63: "Умеренный дождь",
+	65: "Сильный дождь",
+	71: "Небольшой снег",
+	73: "Умеренный снег",
+	75: "Сильный снег",
+	95: "Гроза",
+}
+
+func GetWeatherDescription(code int) string {
+	if desc, ok := WeatherCodeMap[code]; ok {
+		return desc
+	}
+	return "Неизвестно"
 }
