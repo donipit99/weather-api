@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 	"weather-api/config"
 	"weather-api/internal/adapters/postgres"
 	"weather-api/internal/adapters/telegram"
@@ -45,9 +46,18 @@ func main() {
 	}
 	defer db.Close()
 
-	// Проверка соединения
+	// Ожидание готовности PostgreSQL
+	for i := 0; i < 10; i++ {
+		if err := db.Ping(); err != nil {
+			slog.Warn("failed to ping postgres, retrying", "attempt", i+1, "err", err)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		slog.Info("successfully connected to postgres")
+		break
+	}
 	if err := db.Ping(); err != nil {
-		slog.Error("failed to ping postgres", "err", err)
+		slog.Error("failed to ping postgres after retries", "err", err)
 		os.Exit(1)
 	}
 
@@ -57,7 +67,7 @@ func main() {
 		slog.Error("failed to create migration driver", "err", err)
 		os.Exit(1)
 	}
-	m, err := migrate.NewWithDatabaseInstance("file://migrations", "postgres", driver)
+	m, err := migrate.NewWithDatabaseInstance("file:///app/migrations", "postgres", driver)
 	if err != nil {
 		slog.Error("failed to initialize migrations", "err", err)
 		os.Exit(1)
@@ -77,7 +87,7 @@ func main() {
 		WeatherUseCase: weatherUsecase,
 	})
 
-	// Telegram-бот
+	// Телеграм бот
 	bot, err := telegram.NewBot(cfg.Telegram.Token, weatherUsecase)
 	if err != nil {
 		slog.Error("failed to create telegram bot", "err", err)

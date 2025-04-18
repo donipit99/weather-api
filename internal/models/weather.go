@@ -15,7 +15,7 @@ type WeatherResult struct {
 	CurrentWeather CurrentWeather `json:"current_weather"`
 }
 
-var WeatherCodeMap = map[int]string{
+var WeatherCodeMap = map[int]string{ // переменная WeatherCodeMap (словарь), сопостовляет код погоды и описание
 	0:  "Ясно",
 	1:  "Преимущественно ясно",
 	2:  "Переменная облачность",
@@ -34,9 +34,9 @@ var WeatherCodeMap = map[int]string{
 	95: "Гроза",
 }
 
-func GetWeatherDescription(code int) string {
-	if desc, ok := WeatherCodeMap[code]; ok {
-		return desc
+func GetWeatherDescription(code int) string { // функция GetWeatherDescription принимает код погоды (int) и возвращает описание (string)
+	if desc, ok := WeatherCodeMap[code]; ok { // если код есть в словаре WeatherCodeMap,
+		return desc // то возвращает описание
 	}
-	return "Неизвестно"
+	return "Неизвестно" //  если нет - неизвестно
 }
