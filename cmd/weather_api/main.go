@@ -10,6 +10,7 @@ import (
 	"time"
 	"weather-api/config"
 	"weather-api/internal/adapters/postgres"
+	"weather-api/internal/adapters/redis"
 	"weather-api/internal/adapters/telegram"
 	adapters "weather-api/internal/adapters/weather_client"
 	"weather-api/internal/controllers"
@@ -77,11 +78,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Подключение к Redis
+	redisAddr := fmt.Sprintf("%s:%s", cfg.RedisHost, cfg.RedisPort)
+	redisClient := redis.NewClient(redisAddr)
+	pong, err := redisClient.Ping(context.Background())
+	if err != nil {
+		slog.Error("failed to connect to redis", "addr", redisAddr, "err", err)
+		os.Exit(1)
+	}
+	slog.Info("redis connected", "response", pong)
+
 	cityRepo := postgres.NewCityRepository(db)
 	client := adapters.NewClient(adapters.ClientOptions{URL: cfg.WeatherAPI.URL})
 	weatherUsecase := usecase.NewWeatherUseCase(usecase.WeatherUseCaseOptions{
 		WeatherClient:  client,
 		CityRepository: cityRepo,
+		Cache:          redisClient,
 	})
 	weatherController := controllers.NewWeatherController(controllers.WeatherControllerOptions{
 		WeatherUseCase: weatherUsecase,

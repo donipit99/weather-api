@@ -11,8 +11,8 @@ type Config struct {
 	WeatherAPI *WeatherAPI `envPrefix:"WEATHER_API_"`
 	Server     *Server     `envPrefix:"SERVER_"`
 	Telegram   *Telegram   `envPrefix:"TELEGRAM_"`
-	RedisHost  string
-	RedisPort  string
+	RedisHost  string      `env:"REDIS_HOST"`
+	RedisPort  string      `env:"REDIS_PORT"`
 }
 
 type Postgres struct {

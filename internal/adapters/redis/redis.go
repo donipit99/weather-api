@@ -17,13 +17,15 @@ func NewClient(addr string) *Client {
 		Password: "", // Без пароля
 		DB:       0,  // База по умолчанию
 	})
-
 	return &Client{client: client}
 }
 
-func (c *Client) Set(ctx context.Context, key string, value interface{}) error {
+func (c *Client) Ping(ctx context.Context) (string, error) {
+	return c.client.Ping(ctx).Result()
+}
 
-	return c.client.Set(ctx, key, value, time.Minute).Err() // ttl 1m
+func (c *Client) Set(ctx context.Context, key string, value interface{}) error {
+	return c.client.Set(ctx, key, value, 5*time.Minute).Err() // TTL 5 минут
 }
 
 func (c *Client) Get(ctx context.Context, key string) (string, error) {
