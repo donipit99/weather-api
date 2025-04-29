@@ -43,7 +43,7 @@ func NewWeatherUseCase(options WeatherUseCaseOptions) *WeatherUseCase {
 
 func (usecase *WeatherUseCase) GetWeatherToday(ctx context.Context, params dto.GetWeatherTodayParams) (*dto.WeatherResult, error) {
 	// Ключ для кэша
-	cacheKey := fmt.Sprintf("weather:%f:%f", params.Lat, params.Lon)
+	cacheKey := fmt.Sprintf("weather:lat:%f:lon:%f", params.Lat, params.Lon)
 
 	// Проверяем кэш, если он настроен
 	if usecase.options.Cache != nil {

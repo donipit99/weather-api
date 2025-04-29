@@ -82,10 +82,12 @@ func (controller *WeatherController) GetWeatherToday(rw http.ResponseWriter, r *
 		return
 	}
 
-	result, err := controller.options.WeatherUseCase.GetWeatherToday(ctx, dto.GetWeatherTodayParams{
-		Lat: lat,
-		Lon: lon,
-	})
+	result, err := controller.options.WeatherUseCase.GetWeatherToday(ctx,
+		dto.GetWeatherTodayParams{
+			Lat: lat,
+			Lon: lon,
+		})
+
 	if err != nil {
 		writeError(rw, http.StatusInternalServerError, fmt.Sprintf("failed to get weather data: %v", err))
 		return
@@ -96,6 +98,7 @@ func (controller *WeatherController) GetWeatherToday(rw http.ResponseWriter, r *
 		WeatherCode: result.CurrentWeather.WeatherCode,
 		WeatherDesc: result.CurrentWeather.WeatherDesc,
 	}
+	
 	writeResponse(rw, http.StatusOK, response)
 }
 
@@ -104,12 +107,14 @@ func (controller *WeatherController) GetWeatherByCity(rw http.ResponseWriter, r 
 		writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+
 	ctx := r.Context()
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeError(rw, http.StatusBadRequest, "failed to read request body")
 		return
 	}
+	
 	defer r.Body.Close()
 
 	var request GetWeatherByCityRequest

@@ -6,27 +6,37 @@ import (
 	"fmt"
 	"log/slog"
 	"weather-api/internal/models"
+
+	"github.com/jmoiron/sqlx"
 )
 
 type CityRepository struct {
-	db *sql.DB
+	db *sqlx.DB
 }
 
-func NewCityRepository(db *sql.DB) *CityRepository {
-	return &CityRepository{db: db}
+type CityRepositoryOptions struct {
+	DB *sqlx.DB
 }
+
+func NewCityRepository(opts CityRepositoryOptions) *CityRepository {
+	return &CityRepository{db: opts.DB}
+}
+
+const queryGetCityByName = `SELECT name, latitude, longitude, country FROM cities WHERE name = $1`
 
 func (r *CityRepository) GetCityByName(ctx context.Context, name string) (*models.City, error) {
-	query := `SELECT name, latitude, longitude, country FROM cities WHERE name = $1`
 	var city models.City
-	err := r.db.QueryRowContext(ctx, query, name).Scan(&city.Name, &city.Latitude, &city.Longitude, &city.Country)
+	err := r.db.QueryRowContext(ctx, queryGetCityByName, name).Scan(&city.Name, &city.Latitude, &city.Longitude, &city.Country)
+
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("city not found: %s", name)
 	}
+
 	if err != nil {
 		slog.Error("failed to query city", "name", name, "err", err)
 		return nil, fmt.Errorf("db.QueryRowContext: %w", err)
 	}
+
 	return &city, nil
 }
 

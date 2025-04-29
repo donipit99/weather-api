@@ -2,9 +2,10 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
+	"log"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -14,35 +15,36 @@ import (
 	"weather-api/internal/adapters/telegram"
 	adapters "weather-api/internal/adapters/weather_client"
 	"weather-api/internal/controllers"
+	telegramController "weather-api/internal/controllers/telegram" // Добавляем импорт подпакета telegram
+
 	usecase "weather-api/internal/usecase"
 
-	"github.com/golang-migrate/migrate/v4"
-	migratepostgres "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jmoiron/sqlx"
 	"github.com/joho/godotenv"
 )
 
 func main() {
-	// Загрузка .env файла
-	if err := godotenv.Load(); err != nil {
-		slog.Warn("No .env file found, relying on environment variables", "err", err)
+	if err := godotenv.Load(); err != nil { // Загрузка .env файла
+		log.Fatal("Failed to load .env file", err)
 	}
+
 	handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})
 	slog.SetDefault(slog.New(handler))
 
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		slog.Error("load config failed", "err", err)
+		slog.Error("load config failed", "error", err)
 		os.Exit(1)
 	}
 
 	// Подключение к Postgres
 	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 		cfg.Postgres.Host, cfg.Postgres.Port, cfg.Postgres.Username, cfg.Postgres.Password, cfg.Postgres.DB)
-	db, err := sql.Open("pgx", dsn)
+	db, err := sqlx.Open("pgx", dsn)
 	if err != nil {
-		slog.Error("failed to connect to postgres", "err", err)
+		slog.Error("failed to connect to postgres", "error", err)
 		os.Exit(1)
 	}
 	defer db.Close()
@@ -50,7 +52,7 @@ func main() {
 	// Ожидание готовности PostgreSQL
 	for i := 0; i < 10; i++ {
 		if err := db.Ping(); err != nil {
-			slog.Warn("failed to ping postgres, retrying", "attempt", i+1, "err", err)
+			slog.Warn("failed to ping postgres, retrying", "attempt", i+1, "error", err)
 			time.Sleep(2 * time.Second)
 			continue
 		}
@@ -58,57 +60,51 @@ func main() {
 		break
 	}
 	if err := db.Ping(); err != nil {
-		slog.Error("failed to ping postgres after retries", "err", err)
-		os.Exit(1)
-	}
-
-	// Применение миграций
-	driver, err := migratepostgres.WithInstance(db, &migratepostgres.Config{})
-	if err != nil {
-		slog.Error("failed to create migration driver", "err", err)
-		os.Exit(1)
-	}
-	m, err := migrate.NewWithDatabaseInstance("file:///app/migrations", "postgres", driver)
-	if err != nil {
-		slog.Error("failed to initialize migrations", "err", err)
-		os.Exit(1)
-	}
-	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
-		slog.Error("failed to apply migrations", "err", err)
+		slog.Error("failed to ping postgres after retries", "error", err)
 		os.Exit(1)
 	}
 
 	// Подключение к Redis
-	redisAddr := fmt.Sprintf("%s:%s", cfg.RedisHost, cfg.RedisPort)
+	redisAddr := net.JoinHostPort(cfg.RedisHost, cfg.RedisPort)
 	redisClient := redis.NewClient(redisAddr)
-	pong, err := redisClient.Ping(context.Background())
+
+	// Контекст с таймаутом для проверки подключения
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	pong, err := redisClient.Ping(ctx)
 	if err != nil {
-		slog.Error("failed to connect to redis", "addr", redisAddr, "err", err)
+		slog.Error("failed to connect to redis", "addr", redisAddr, "error", err)
 		os.Exit(1)
 	}
 	slog.Info("redis connected", "response", pong)
 
-	cityRepo := postgres.NewCityRepository(db)
+	cityRepository := postgres.NewCityRepository(postgres.CityRepositoryOptions{DB: db})
 	client := adapters.NewClient(adapters.ClientOptions{URL: cfg.WeatherAPI.URL})
 	weatherUsecase := usecase.NewWeatherUseCase(usecase.WeatherUseCaseOptions{
 		WeatherClient:  client,
-		CityRepository: cityRepo,
+		CityRepository: cityRepository,
 		Cache:          redisClient,
 	})
 	weatherController := controllers.NewWeatherController(controllers.WeatherControllerOptions{
 		WeatherUseCase: weatherUsecase,
 	})
 
-	// Телеграм бот
-	bot, err := telegram.NewBot(cfg.Telegram.Token, weatherUsecase)
+	// Инициализация тг бота
+	bot, err := telegram.NewBot(cfg.Telegram.Token)
 	if err != nil {
-		slog.Error("failed to create telegram bot", "err", err)
+		slog.Error("failed to create telegram bot", "error", err)
 		os.Exit(1)
 	}
+
+	// Инициализация тг контроллера
+	telegramController := telegramController.NewTelegramController(bot, weatherUsecase)
+
+	// Запуск тг контроллера
 	go func() {
 		ctx := context.Background()
-		if err := bot.Start(ctx); err != nil {
-			slog.Error("telegram bot failed", "err", err)
+		if err := telegramController.Start(ctx); err != nil {
+			slog.Error("telegram controller failed", "error", err)
 		}
 	}()
 
@@ -117,7 +113,7 @@ func main() {
 
 	slog.Info("server start", "port", cfg.Server.Port)
 	if err := http.ListenAndServe(":"+cfg.Server.Port, nil); err != nil {
-		slog.Error("server failed", "err", err)
+		slog.Error("server failed", "error", err)
 		os.Exit(1)
 	}
 }
