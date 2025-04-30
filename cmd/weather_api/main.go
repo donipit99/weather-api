@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -15,54 +13,52 @@ import (
 	"weather-api/internal/adapters/telegram"
 	adapters "weather-api/internal/adapters/weather_client"
 	"weather-api/internal/controllers"
-	telegramController "weather-api/internal/controllers/telegram" // Добавляем импорт подпакета telegram
+	routes "weather-api/internal/controllers/http_weather_controller"
+
+	telegramController "weather-api/internal/controllers/telegram"
 
 	usecase "weather-api/internal/usecase"
+	"weather-api/pkg/logger"
+	"weather-api/pkg/postgresql"
 
 	_ "github.com/golang-migrate/migrate/v4/source/file"
-	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/jmoiron/sqlx"
 	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 func main() {
-	if err := godotenv.Load(); err != nil { // Загрузка .env файла
-		log.Fatal("Failed to load .env file", err)
+	if err := godotenv.Load(); err != nil {
+		tempLogger := logger.NewLogger("info")
+		tempLogger.Warn("No .env file found, relying on environment variables", "err", err)
 	}
 
-	handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})
-	slog.SetDefault(slog.New(handler))
-
+	// Загружаем конфигурацию
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		slog.Error("load config failed", "error", err)
-		os.Exit(1)
+		tempLogger := logger.NewLogger("info")
+		tempLogger.Fatal("load config failed", "err", err)
 	}
 
-	// Подключение к Postgres
-	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-		cfg.Postgres.Host, cfg.Postgres.Port, cfg.Postgres.Username, cfg.Postgres.Password, cfg.Postgres.DB)
-	db, err := sqlx.Open("pgx", dsn)
+	// Создаем логгер с уровнем из конфигурации
+	log := logger.NewLogger(cfg.LogLevel)
+	// Устанавливаем логгер как дефолтный для slog
+	slog.SetDefault(log.Logger)
+
+	db, err := postgresql.NewPostgres(
+		postgresql.WithHost(cfg.Postgres.Host),
+		postgresql.WithPort(cfg.Postgres.Port),
+		postgresql.WithUsername(cfg.Postgres.Username),
+		postgresql.WithPassword(cfg.Postgres.Password),
+		postgresql.WithDBName(cfg.Postgres.DB),
+		postgresql.WithSSLMode("disable"),
+	)
+
 	if err != nil {
-		slog.Error("failed to connect to postgres", "error", err)
-		os.Exit(1)
+		log.Fatal("failed to initialize postgres", "error", err)
 	}
 	defer db.Close()
 
-	// Ожидание готовности PostgreSQL
-	for i := 0; i < 10; i++ {
-		if err := db.Ping(); err != nil {
-			slog.Warn("failed to ping postgres, retrying", "attempt", i+1, "error", err)
-			time.Sleep(2 * time.Second)
-			continue
-		}
-		slog.Info("successfully connected to postgres")
-		break
-	}
-	if err := db.Ping(); err != nil {
-		slog.Error("failed to ping postgres after retries", "error", err)
-		os.Exit(1)
-	}
+	log.Info("successfully connected to postgres")
 
 	// Подключение к Redis
 	redisAddr := net.JoinHostPort(cfg.RedisHost, cfg.RedisPort)
@@ -79,7 +75,7 @@ func main() {
 	}
 	slog.Info("redis connected", "response", pong)
 
-	cityRepository := postgres.NewCityRepository(postgres.CityRepositoryOptions{DB: db})
+	cityRepository := postgres.NewCityRepository(postgres.CityRepositoryOptions{DB: db.DB})
 	client := adapters.NewClient(adapters.ClientOptions{URL: cfg.WeatherAPI.URL})
 	weatherUsecase := usecase.NewWeatherUseCase(usecase.WeatherUseCaseOptions{
 		WeatherClient:  client,
@@ -89,6 +85,9 @@ func main() {
 	weatherController := controllers.NewWeatherController(controllers.WeatherControllerOptions{
 		WeatherUseCase: weatherUsecase,
 	})
+
+	//
+	router := routes.SetupRoutes(weatherController)
 
 	// Инициализация тг бота
 	bot, err := telegram.NewBot(cfg.Telegram.Token)
@@ -108,11 +107,9 @@ func main() {
 		}
 	}()
 
-	http.HandleFunc("/api/v1/weather", weatherController.GetWeatherToday)
-	http.HandleFunc("/api/v1/weather/city", weatherController.GetWeatherByCity)
-
+	// Запуск HTTP сервера с нашим роутером
 	slog.Info("server start", "port", cfg.Server.Port)
-	if err := http.ListenAndServe(":"+cfg.Server.Port, nil); err != nil {
+	if err := http.ListenAndServe(":"+cfg.Server.Port, router); err != nil {
 		slog.Error("server failed", "error", err)
 		os.Exit(1)
 	}

@@ -13,6 +13,7 @@ type Config struct {
 	Telegram   *Telegram   `envPrefix:"TELEGRAM_"`
 	RedisHost  string      `env:"REDIS_HOST"`
 	RedisPort  string      `env:"REDIS_PORT"`
+	LogLevel   string      `env:"LOG_LEVEL" envDefault:"info"` // уровень логирования
 }
 
 type Postgres struct {
