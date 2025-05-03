@@ -57,8 +57,8 @@ func (controller *WeatherController) GetWeatherToday(rw http.ResponseWriter, r *
 	}
 	defer r.Body.Close()
 
-	var request GetWeatherTodayRequest
-	if err := json.Unmarshal(body, &request); err != nil {
+	request := new(GetWeatherTodayRequest)
+	if err := json.Unmarshal(body, request); err != nil {
 		writeError(rw, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -98,7 +98,7 @@ func (controller *WeatherController) GetWeatherToday(rw http.ResponseWriter, r *
 		WeatherCode: result.CurrentWeather.WeatherCode,
 		WeatherDesc: result.CurrentWeather.WeatherDesc,
 	}
-	
+
 	writeResponse(rw, http.StatusOK, response)
 }
 
@@ -114,7 +114,7 @@ func (controller *WeatherController) GetWeatherByCity(rw http.ResponseWriter, r 
 		writeError(rw, http.StatusBadRequest, "failed to read request body")
 		return
 	}
-	
+
 	defer r.Body.Close()
 
 	var request GetWeatherByCityRequest
