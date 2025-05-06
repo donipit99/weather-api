@@ -3,12 +3,14 @@ package controllers
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"weather-api/internal/dto"
 	"weather-api/internal/models"
+	"weather-api/internal/usecase"
+
+	"github.com/gorilla/mux"
 )
 
 type WeatherUseCase interface {
@@ -17,134 +19,103 @@ type WeatherUseCase interface {
 	GetAllCities(ctx context.Context) ([]models.City, error)
 }
 
+// WeatherController обрабатывает HTTP запросы к погодному API
 type WeatherController struct {
-	options WeatherControllerOptions
+	weatherUseCase *usecase.WeatherUseCase
 }
 
+// WeatherControllerOptions параметры для создания контроллера
 type WeatherControllerOptions struct {
-	WeatherUseCase WeatherUseCase
+	WeatherUseCase *usecase.WeatherUseCase
 }
 
+// NewWeatherController создает новый контроллер погоды
 func NewWeatherController(options WeatherControllerOptions) *WeatherController {
-	return &WeatherController{options: options}
+	return &WeatherController{
+		weatherUseCase: options.WeatherUseCase,
+	}
 }
 
-type GetWeatherTodayRequest struct {
-	Lat string `json:"lat"`
-	Lon string `json:"lon"`
-}
+// GetWeather получает погоду по координатам
+func (c *WeatherController) GetWeather(w http.ResponseWriter, r *http.Request) {
+	// Получаем параметры запроса
+	query := r.URL.Query()
 
-type GetWeatherByCityRequest struct {
-	City string `json:"city"`
-}
+	// Парсим координаты
+	latStr := query.Get("lat")
+	lonStr := query.Get("lon")
 
-type GetWeatherTodayResponse struct {
-	Temperature float64 `json:"temperature"`
-	WeatherCode int     `json:"weather_code"`
-	WeatherDesc string  `json:"weather_description"`
-}
-
-func (controller *WeatherController) GetWeatherToday(rw http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
+	if latStr == "" || lonStr == "" {
+		http.Error(w, "Missing lat or lon parameters", http.StatusBadRequest)
 		return
 	}
-	ctx := r.Context()
-	body, err := io.ReadAll(r.Body)
+
+	lat, err := strconv.ParseFloat(latStr, 64)
 	if err != nil {
-		writeError(rw, http.StatusBadRequest, "failed to read request body")
-		return
-	}
-	defer r.Body.Close()
-
-	request := new(GetWeatherTodayRequest)
-	if err := json.Unmarshal(body, request); err != nil {
-		writeError(rw, http.StatusBadRequest, "invalid request body")
+		http.Error(w, "Invalid lat parameter", http.StatusBadRequest)
 		return
 	}
 
-	lat, err := strconv.ParseFloat(request.Lat, 64)
+	lon, err := strconv.ParseFloat(lonStr, 64)
 	if err != nil {
-		writeError(rw, http.StatusBadRequest, "invalid latitude")
+		http.Error(w, "Invalid lon parameter", http.StatusBadRequest)
 		return
 	}
-	lon, err := strconv.ParseFloat(request.Lon, 64)
+
+	// Формируем запрос
+	params := dto.GetWeatherTodayParams{
+		Lat: lat,
+		Lon: lon,
+	}
+
+	// Получаем погоду через usecase
+	result, err := c.weatherUseCase.GetWeatherToday(r.Context(), params)
 	if err != nil {
-		writeError(rw, http.StatusBadRequest, "invalid longitude")
-		return
-	}
-	if lat < -90 || lat > 90 {
-		writeError(rw, http.StatusBadRequest, "latitude must be between -90 and 90")
-		return
-	}
-	if lon < -180 || lon > 180 {
-		writeError(rw, http.StatusBadRequest, "longitude must be between -180 and 180")
+		slog.Error("Failed to get weather", "error", err)
+		http.Error(w, "Error getting weather: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	result, err := controller.options.WeatherUseCase.GetWeatherToday(ctx,
-		dto.GetWeatherTodayParams{
-			Lat: lat,
-			Lon: lon,
-		})
-
-	if err != nil {
-		writeError(rw, http.StatusInternalServerError, fmt.Sprintf("failed to get weather data: %v", err))
-		return
-	}
-
-	response := &GetWeatherTodayResponse{
-		Temperature: result.CurrentWeather.Temperature,
-		WeatherCode: result.CurrentWeather.WeatherCode,
-		WeatherDesc: result.CurrentWeather.WeatherDesc,
-	}
-
-	writeResponse(rw, http.StatusOK, response)
+	// Отправляем результат
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
 }
 
-func (controller *WeatherController) GetWeatherByCity(rw http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(rw, http.StatusMethodNotAllowed, "method not allowed")
+// GetWeatherByCity получает погоду по названию города
+func (c *WeatherController) GetWeatherByCity(w http.ResponseWriter, r *http.Request) {
+	// Получаем название города из URL
+	vars := mux.Vars(r)
+	cityName := vars["city"]
+
+	if cityName == "" {
+		http.Error(w, "City name is required", http.StatusBadRequest)
 		return
 	}
 
-	ctx := r.Context()
-	body, err := io.ReadAll(r.Body)
+	// Получаем погоду через usecase
+	result, err := c.weatherUseCase.GetWeatherByCity(r.Context(), cityName)
 	if err != nil {
-		writeError(rw, http.StatusBadRequest, "failed to read request body")
+		slog.Error("Failed to get weather for city", "city", cityName, "error", err)
+		http.Error(w, "Error getting weather: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	defer r.Body.Close()
-
-	var request GetWeatherByCityRequest
-	if err := json.Unmarshal(body, &request); err != nil {
-		writeError(rw, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if request.City == "" {
-		writeError(rw, http.StatusBadRequest, "city name is required")
-		return
-	}
-
-	result, err := controller.options.WeatherUseCase.GetWeatherByCity(ctx, request.City)
-	if err != nil {
-		writeError(rw, http.StatusInternalServerError, fmt.Sprintf("failed to get weather data: %v", err))
-		return
-	}
-
-	response := &GetWeatherTodayResponse{
-		Temperature: result.CurrentWeather.Temperature,
-		WeatherCode: result.CurrentWeather.WeatherCode,
-		WeatherDesc: result.CurrentWeather.WeatherDesc,
-	}
-	writeResponse(rw, http.StatusOK, response)
+	// Отправляем результат
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
 }
 
-func writeResponse(rw http.ResponseWriter, i int, response *GetWeatherTodayResponse) {
-	panic("unimplemented")
-}
+// GetAllCities получает список всех городов
+func (c *WeatherController) GetAllCities(w http.ResponseWriter, r *http.Request) {
+	// Получаем список городов через usecase
+	cities, err := c.weatherUseCase.GetAllCities(r.Context())
+	if err != nil {
+		slog.Error("Failed to get cities", "error", err)
+		http.Error(w, "Error getting cities: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-func writeError(rw http.ResponseWriter, i int, s string) {
-	panic("unimplemented")
+	// Отправляем результат
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(cities)
 }

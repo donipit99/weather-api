@@ -1,32 +1,31 @@
-.PHONY: build up down restart hard-reload logs clean
+.PHONY: create-network up-all stop-all hard-reload-kafka monitoring-up monitoring-down all-up all-down
 
-# Собрать образы
-build:
-	docker compose build
+create-network:
+	docker network create weather-network || true
 
-# Запустить сервисы
-up:
-	docker compose up -d
+up-all: create-network
+	docker-compose -f docker-compose.db.yml -f docker-compose.redis.yml -f docker-compose.kafka.yml -f docker-compose.app.yml up -d
 
-# Остановить сервисы
-down:
-	docker compose down
+stop-all:
+	docker-compose -f docker-compose.app.yml -f docker-compose.kafka.yml -f docker-compose.redis.yml -f docker-compose.db.yml stop
 
-# Перезапустить сервисы
-restart: down up
+hard-reload-kafka:
+	docker-compose -f docker-compose.kafka.yml stop
+	docker-compose -f docker-compose.kafka.yml rm -v -f
+	docker-compose -f docker-compose.kafka.yml up -d
 
-# Полная пересборка и перезапуск
-hard-reload:
-	docker compose down --volumes --remove-orphans
-	docker compose build --no-cache
-	docker compose up -d --force-recreate
+# Запуск мониторинга
+monitoring-up:
+	docker-compose -f docker-compose.monitoring.yml up -d
 
-# Показать логи
-logs:
-	docker compose logs -f
+# Остановка мониторинга
+monitoring-down:
+	docker-compose -f docker-compose.monitoring.yml down
 
-# Очистить неиспользуемые образы и контейнеры
-clean:
-	docker system prune -f
-
+# Запуск всех контейнеров (БД, Redis, мониторинг)
+all-up:
+	docker-compose -f docker-compose.db.yml -f docker-compose.redis.yml -f docker-compose.monitoring.yml up -d
 	
+# Остановка всех контейнеров
+all-down:
+	docker-compose -f docker-compose.db.yml -f docker-compose.redis.yml -f docker-compose.monitoring.yml down

@@ -1,4 +1,4 @@
-package adapters
+package weather_client
 
 import (
 	"context"
@@ -9,7 +9,10 @@ import (
 	"net/http"
 	"time"
 	"weather-api/internal/models"
+	"weather-api/internal/repository"
 )
+
+var _ repository.WeatherRepository = (*Client)(nil)
 
 var (
 	ErrStatusWeatherAPI = fmt.Errorf("error response from weather api")

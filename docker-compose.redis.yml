@@ -1,0 +1,19 @@
+services:
+  redis:
+    image: redis:7.0
+    ports:
+      - "${REDIS_EXTERNAL_PORT}:${REDIS_PORT}"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - weather-network
+
+volumes:
+  redis_data:
+
+networks:
+  weather-network:
+    external: true
+
+    

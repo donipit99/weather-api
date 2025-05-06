@@ -9,15 +9,19 @@ import (
 
 type Client struct {
 	client *redis.Client
+	ttl    time.Duration
 }
 
-func NewClient(addr string) *Client {
+func NewClient(addr string, ttlSeconds int) *Client {
 	client := redis.NewClient(&redis.Options{
 		Addr:     addr,
 		Password: "", // Без пароля
 		DB:       0,  // База по умолчанию
 	})
-	return &Client{client: client}
+	return &Client{
+		client: client,
+		ttl:    time.Duration(ttlSeconds) * time.Second,
+	}
 }
 
 func (c *Client) Ping(ctx context.Context) (string, error) {
@@ -29,7 +33,7 @@ func (c *Client) Ping(ctx context.Context) (string, error) {
 func (c *Client) Set(ctx context.Context, key string, value any) error {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	return c.client.Set(ctx, key, value, 5*time.Minute).Err()
+	return c.client.Set(ctx, key, value, c.ttl).Err()
 }
 
 func (c *Client) Get(ctx context.Context, key string) (string, error) {

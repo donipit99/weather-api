@@ -11,17 +11,22 @@ type Config struct {
 	WeatherAPI *WeatherAPI `envPrefix:"WEATHER_API_"`
 	Server     *Server     `envPrefix:"SERVER_"`
 	Telegram   *Telegram   `envPrefix:"TELEGRAM_"`
-	RedisHost  string      `env:"REDIS_HOST"`
-	RedisPort  string      `env:"REDIS_PORT"`
-	LogLevel   string      `env:"LOG_LEVEL" envDefault:"info"` // уровень логирования
+	Redis      *Redis      `envPrefix:"REDIS_"`
+	LogLevel   string      `env:"LOG_LEVEL"` // уровень логирования
 }
 
 type Postgres struct {
 	Host     string `env:"HOST"`
-	Port     string `env:"PORT" envDefault:"5432"`
-	Username string `env:"USERNAME" envDefault:"postgres"`
-	Password string `env:"PASSWORD" envDefault:"postgres"`
+	Port     string `env:"PORT"`
+	Username string `env:"USERNAME"`
+	Password string `env:"PASSWORD"`
 	DB       string `env:"DB"`
+}
+
+type Redis struct {
+	Host string `env:"HOST"`
+	Port string `env:"PORT"`
+	TTL  int    `env:"TTL"`
 }
 
 type WeatherAPI struct {

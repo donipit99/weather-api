@@ -11,14 +11,15 @@ import (
 	"weather-api/internal/adapters/postgres"
 	"weather-api/internal/adapters/redis"
 	"weather-api/internal/adapters/telegram"
-	adapters "weather-api/internal/adapters/weather_client"
+	"weather-api/internal/adapters/weather_cache"
+	"weather-api/internal/adapters/weather_client"
 	"weather-api/internal/controllers"
-	routes "weather-api/internal/controllers/http_weather_controller"
-
+	httpController "weather-api/internal/controllers/http_weather_controller"
 	telegramController "weather-api/internal/controllers/telegram"
-
-	usecase "weather-api/internal/usecase"
+	"weather-api/internal/redis_cache"
+	"weather-api/internal/usecase"
 	"weather-api/pkg/logger"
+	"weather-api/pkg/metrics"
 	"weather-api/pkg/postgresql"
 
 	_ "github.com/golang-migrate/migrate/v4/source/file"
@@ -27,23 +28,27 @@ import (
 )
 
 func main() {
+	// Загрузка .env
 	if err := godotenv.Load(); err != nil {
 		tempLogger := logger.NewLogger("info")
 		tempLogger.Warn("No .env file found, relying on environment variables", "err", err)
 	}
 
-	// Загружаем конфигурацию
+	// Загрузка конфига
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		tempLogger := logger.NewLogger("info")
 		tempLogger.Fatal("load config failed", "err", err)
 	}
 
-	// Создаем логгер с уровнем из конфигурации
+	// Создаем логгер
 	log := logger.NewLogger(cfg.LogLevel)
-	// Устанавливаем логгер как дефолтный для slog
 	slog.SetDefault(log.Logger)
 
+	// Инициализация метрик Prometheus
+	appMetrics := metrics.NewMetrics()
+
+	// PostgreSQL
 	db, err := postgresql.NewPostgres(
 		postgresql.WithHost(cfg.Postgres.Host),
 		postgresql.WithPort(cfg.Postgres.Port),
@@ -52,65 +57,73 @@ func main() {
 		postgresql.WithDBName(cfg.Postgres.DB),
 		postgresql.WithSSLMode("disable"),
 	)
-
 	if err != nil {
 		log.Fatal("failed to initialize postgres", "error", err)
 	}
 	defer db.Close()
-
 	log.Info("successfully connected to postgres")
 
-	// Подключение к Redis
-	redisAddr := net.JoinHostPort(cfg.RedisHost, cfg.RedisPort)
-	redisClient := redis.NewClient(redisAddr)
+	// Redis
+	redisAddr := net.JoinHostPort(cfg.Redis.Host, cfg.Redis.Port)
+	redisClient := redis.NewClient(redisAddr, cfg.Redis.TTL)
 
-	// Контекст с таймаутом для проверки подключения
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
 	pong, err := redisClient.Ping(ctx)
 	if err != nil {
-		slog.Error("failed to connect to redis", "addr", redisAddr, "error", err)
+		log.Error("failed to connect to redis", "addr", redisAddr, "error", err)
 		os.Exit(1)
 	}
-	slog.Info("redis connected", "response", pong)
+	log.Info("redis connected", "response", pong)
 
-	cityRepository := postgres.NewCityRepository(postgres.CityRepositoryOptions{DB: db.DB})
-	client := adapters.NewClient(adapters.ClientOptions{URL: cfg.WeatherAPI.URL})
+	// Репозиторий городов (PostgreSQL)
+	pgCityRepo := postgres.NewCityRepository(postgres.CityRepositoryOptions{DB: db.DB})
+
+	// Кэширующий прокси для городов
+	cityRepository := redis_cache.NewCityRepositoryRedis(redisClient, pgCityRepo, appMetrics)
+
+	// Погодный клиент
+	weatherClient := weather_client.NewClient(weather_client.ClientOptions{URL: cfg.WeatherAPI.URL})
+
+	// Кэширующий прокси для погоды
+	weatherRepository := weather_cache.NewWeatherCache(redisClient, weatherClient, appMetrics)
+
+	// UseCase
 	weatherUsecase := usecase.NewWeatherUseCase(usecase.WeatherUseCaseOptions{
-		WeatherClient:  client,
-		CityRepository: cityRepository,
-		Cache:          redisClient,
+		WeatherRepository: weatherRepository,
+		CityRepository:    cityRepository,
 	})
+
+	// HTTP контроллер
 	weatherController := controllers.NewWeatherController(controllers.WeatherControllerOptions{
 		WeatherUseCase: weatherUsecase,
 	})
 
-	//
-	router := routes.SetupRoutes(weatherController)
+	// HTTP маршруты
+	router := httpController.SetupRoutes(weatherController, appMetrics)
 
-	// Инициализация тг бота
+	// Telegram бот
 	bot, err := telegram.NewBot(cfg.Telegram.Token)
 	if err != nil {
-		slog.Error("failed to create telegram bot", "error", err)
+		log.Error("failed to create telegram bot", "error", err)
 		os.Exit(1)
 	}
 
-	// Инициализация тг контроллера
-	telegramController := telegramController.NewTelegramController(bot, weatherUsecase)
+	// Telegram контроллер
+	tgController := telegramController.NewTelegramController(bot, weatherUsecase)
 
-	// Запуск тг контроллера
+	// Запуск Telegram контроллера
 	go func() {
 		ctx := context.Background()
-		if err := telegramController.Start(ctx); err != nil {
-			slog.Error("telegram controller failed", "error", err)
+		if err := tgController.Start(ctx); err != nil {
+			log.Error("telegram controller failed", "error", err)
 		}
 	}()
 
-	// Запуск HTTP сервера с нашим роутером
-	slog.Info("server start", "port", cfg.Server.Port)
+	// Запуск HTTP сервера
+	log.Info("server start", "port", cfg.Server.Port)
 	if err := http.ListenAndServe(":"+cfg.Server.Port, router); err != nil {
-		slog.Error("server failed", "error", err)
+		log.Error("server failed", "error", err)
 		os.Exit(1)
 	}
 }
